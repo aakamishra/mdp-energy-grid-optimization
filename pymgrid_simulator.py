@@ -204,7 +204,7 @@ class PymgridParameterizedMDP:
 
             # Select the action with the highest Q-value
             best_action = self.action_space[np.argmax(q_values)]
-            print("best_action", test_simulator.convert_action(best_action))
+            print("step", test_simulator.current_step)
             # pdb.set_trace()
             action_log.append(test_simulator.convert_action(best_action))
             timestamps.append(time.time())
@@ -212,7 +212,6 @@ class PymgridParameterizedMDP:
             # Perform the action in the simulator
             state, reward, done, info = test_simulator.step(best_action)
             total_reward += reward
-            
 
             # Check for simulation end : temporarily setting to 100
             if done:
