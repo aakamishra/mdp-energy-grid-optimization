@@ -43,60 +43,60 @@ class PymgridParameterizedMDP:
             features =np.append(features, grid_action["grid"][0])
         if grid_action.get("battery"):
             features = np.append(features, grid_action["battery"][0])
-        energy_diff = 0
-        load_energy = 0
-        provided_energy = 0
-        co2_emissions = 0
-        if info.get("load"):
-            load_energy = info["load"][0]["absorbed_energy"]
-            features = np.append(features, load_energy)
-        if info.get("genset"):
-            if info["genset"][0].get("provided_energy"):
-                genset_provided_energy = info["genset"][0]["provided_energy"]
-            else:
-                genset_provided_energy = 0
-            features = np.append(features, genset_provided_energy)
-            provided_energy += genset_provided_energy
-            genset_co2 = info["genset"][0]["co2_production"]
-            features = np.append(features, genset_co2)
-            co2_emissions += genset_co2
-        if info.get("battery"):
-            if info["battery"][0].get("provided_energy"):
-                battery_provided_energy = info["battery"][0]["provided_energy"]
-            else:
-                battery_provided_energy = 0
-            features = np.append(features, battery_provided_energy)
-            provided_energy += battery_provided_energy
-        if info.get("pv"):
-            if info["pv"][0].get("provided_energy"):
-                pv_provided_energy = info["pv"][0]["provided_energy"]
-            else:
-                pv_provided_energy = 0
-            features = np.append(features, pv_provided_energy)
-            provided_energy += pv_provided_energy
-            pv_curtailment = info["pv"][0]["curtailment"]
-            features = np.append(features, pv_curtailment)
-        if info.get("grid"):
-            if info["grid"][0].get("provided_energy"):
-                grid_provided_energy = info["grid"][0]["provided_energy"]
-            else:
-                grid_provided_energy = 0
-            features = np.append(features, grid_provided_energy)
-            provided_energy += grid_provided_energy
-            grid_co2 = info["grid"][0]["co2_production"]
-            features = np.append(features, grid_co2)
-            co2_emissions += grid_co2
-        if info.get("unbalanced_energy"):
-            if info["unbalanced_energy"][0].get("provided_energy"):
-                unbalanced_provided_energy = info["unbalanced_energy"][0]["provided_energy"]
-            else:
-                unbalanced_provided_energy = 0
-            features = np.append(features, battery_provided_energy)
-            provided_energy += unbalanced_provided_energy
-        energy_diff = load_energy - provided_energy
-        features = np.append(features, energy_diff)
-        features = np.append(features, provided_energy)
-        features = np.append(features, co2_emissions)
+        # energy_diff = 0
+        # load_energy = 0
+        # provided_energy = 0
+        # co2_emissions = 0
+        # if info.get("load"):
+        #     load_energy = info["load"][0]["absorbed_energy"]
+        #     features = np.append(features, load_energy)
+        # if info.get("genset"):
+        #     if info["genset"][0].get("provided_energy"):
+        #         genset_provided_energy = info["genset"][0]["provided_energy"]
+        #     else:
+        #         genset_provided_energy = 0
+        #     features = np.append(features, genset_provided_energy)
+        #     provided_energy += genset_provided_energy
+        #     genset_co2 = info["genset"][0]["co2_production"]
+        #     features = np.append(features, genset_co2)
+        #     co2_emissions += genset_co2
+        # if info.get("battery"):
+        #     if info["battery"][0].get("provided_energy"):
+        #         battery_provided_energy = info["battery"][0]["provided_energy"]
+        #     else:
+        #         battery_provided_energy = 0
+        #     features = np.append(features, battery_provided_energy)
+        #     provided_energy += battery_provided_energy
+        # if info.get("pv"):
+        #     if info["pv"][0].get("provided_energy"):
+        #         pv_provided_energy = info["pv"][0]["provided_energy"]
+        #     else:
+        #         pv_provided_energy = 0
+        #     features = np.append(features, pv_provided_energy)
+        #     provided_energy += pv_provided_energy
+        #     pv_curtailment = info["pv"][0]["curtailment"]
+        #     features = np.append(features, pv_curtailment)
+        # if info.get("grid"):
+        #     if info["grid"][0].get("provided_energy"):
+        #         grid_provided_energy = info["grid"][0]["provided_energy"]
+        #     else:
+        #         grid_provided_energy = 0
+        #     features = np.append(features, grid_provided_energy)
+        #     provided_energy += grid_provided_energy
+        #     grid_co2 = info["grid"][0]["co2_production"]
+        #     features = np.append(features, grid_co2)
+        #     co2_emissions += grid_co2
+        # if info.get("unbalanced_energy"):
+        #     if info["unbalanced_energy"][0].get("provided_energy"):
+        #         unbalanced_provided_energy = info["unbalanced_energy"][0]["provided_energy"]
+        #     else:
+        #         unbalanced_provided_energy = 0
+        #     features = np.append(features, battery_provided_energy)
+        #     provided_energy += unbalanced_provided_energy
+        # energy_diff = load_energy - provided_energy
+        # features = np.append(features, energy_diff)
+        # features = np.append(features, provided_energy)
+        # features = np.append(features, co2_emissions)
         return features
 
     def q_value(self, state, action, info):
@@ -145,7 +145,8 @@ class PymgridParameterizedMDP:
             self.randomization *= 0.8
             self.state_space = set()
             # take a random initial step
-            curr_obs, reward, done, info = self.simulator.step(self.simulator.sample_action())
+            action_index = np.random.randint(0, self.action_size)
+            curr_obs, reward, done, info = self.simulator.step(self.action_space[action_index])
 
             while True:
                 state = curr_obs
@@ -157,10 +158,12 @@ class PymgridParameterizedMDP:
                     #print("policy-action", action)
                     #pdb.set_trace()
                 else:
-                    action = self.simulator.sample_action()
+                    action_index = np.random.randint(0, self.action_size)
+                    action = self.action_space[action_index]
                   # Define a reward function
                 print("reward", reward)
                 print("step", self.simulator.current_step)
+                print("action", action)
                 #pdb.set_trace()
                 next_state, reward, done, next_info = self.simulator.step(action)  # Take an action with a fixed amount (e.g., 100 MW)
                 # Get the next state
