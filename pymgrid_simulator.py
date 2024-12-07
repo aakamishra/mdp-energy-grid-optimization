@@ -14,26 +14,27 @@ import itertools
 
 
 class PymgridParameterizedMDP:
-    def __init__(self, learning_rate=0.1, discount_factor=0.9, randomization=0.3, grid_num=0, microgrid=None):
+    def __init__(self, learning_rate=0.1, discount_factor=0.9, randomization=0.3, grid_num=0, microgrid=None, end_step=None):
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.randomization = randomization
         self.grid_num = grid_num
         self.input_microgrid=microgrid
         if microgrid != None:
-            self.simulator = ContinuousMicrogridEnv.from_microgrid(microgrid)
+            self.simulator = DiscreteMicrogridEnv.from_microgrid(microgrid)
         else:
-            self.simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=grid_num)
+            self.simulator = DiscreteMicrogridEnv.from_scenario(microgrid_number=grid_num)
+        self.end_step = end_step
         self.theta = None
-        self.action_size = len(self.simulator.sample_action())
-        self.action_space = self.discritize_action_space()
+        # self.action_size = len(self.simulator.sample_action())
+        self.action_space = range(len(self.simulator.actions_list))
         
         
 
-    def discritize_action_space(self):
-        individual_actions = [x/10.0 for x in range(10)]
-        discrete_actions = itertools.combinations_with_replacement(individual_actions, self.action_size)
-        return [np.array(a) for a in discrete_actions]
+    # def discritize_action_space(self):
+    #     individual_actions = [x/10.0 for x in range(10)]
+    #     discrete_actions = itertools.combinations_with_replacement(individual_actions, self.action_size)
+    #     return [np.array(a) for a in discrete_actions]
 
 
     def feature_vector(self, state, action, info):
@@ -110,8 +111,10 @@ class PymgridParameterizedMDP:
         Compute Q-value for a given state and action using the parameterized model.
         """
         phi = self.feature_vector(state, action, info)
+        # print("phi", phi.shape)
         if self.theta is None:
             self.theta = np.random.randn(phi.size)
+        # print("theta", self.theta.shape)
         return np.dot(self.theta, phi)
 
     def update_parameters(self, state, action, info, reward, next_state, next_info):
@@ -145,13 +148,13 @@ class PymgridParameterizedMDP:
         """
         episode_rewards = []
         for episode in tqdm(range(episodes)):
-            self.simulator =  ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num) # Reset the simulator for each episode
+            self.simulator.reset() # Reset the simulator for each episode
             total_error = 0
             grad_sum = 0
             self.randomization *= 0.8
             self.state_space = set()
             # take a random initial step
-            action_index = np.random.randint(0, self.action_size)
+            action_index = np.random.randint(0, len(self.action_space))
             state, reward, done, info = self.simulator.step(self.action_space[action_index])
 
             while True:
@@ -171,7 +174,7 @@ class PymgridParameterizedMDP:
                 #pdb.set_trace()
                 next_state, reward, done, next_info = self.simulator.step(action)  # Take an action with a fixed amount (e.g., 100 MW)
                 # Get the next state
-                if done:
+                if done or ((not (self.end_step == None)) and self.simulator.current_step >= self.end_step):
                     break  # Stop if we've reached the end of the simulation
 
                 # Update parameters
@@ -185,6 +188,44 @@ class PymgridParameterizedMDP:
             print(f"Episode {episode + 1}: Total Reward = {total_error}, Total Gradient Sum = {grad_sum}")
 
         return self.theta, episode_rewards
+
+    def random_action_baseline(self):
+        """
+        Chooses random actions from the action space to use as a baseline.
+        """
+        total_reward = 0
+        action_log = []
+        timestamps = []
+
+        if self.input_microgrid != None:
+            test_simulator = DiscreteMicrogridEnv.from_microgrid(self.input_microgrid)
+        else:
+            test_simulator = DiscreteMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+
+        #continuous
+        # if self.input_microgrid != None:
+        #     test_simulator = ContinuousMicrogridEnv.from_microgrid(self.input_microgrid)
+        # else:
+        #     test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+        # test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+
+        while True:
+        # Select action based on the policy
+            # Pick a random action
+            action_index = np.random.randint(0, len(self.action_space))
+            action = self.action_space[action_index]  
+            
+            # Perform the action in the simulator
+            state, reward, done, info = test_simulator.step(action)
+            total_reward += reward
+
+            # Check for simulation end
+            if done or ((not (self.end_step == None)) and test_simulator.current_step >= self.end_step):
+                break
+
+        microgrid_log = test_simulator.get_log()
+
+        return total_reward, action_log, timestamps, microgrid_log
     
     def run_inference(self):
         """
@@ -198,7 +239,10 @@ class PymgridParameterizedMDP:
         action_log = []
         timestamps = []
 
-        test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+        if self.input_microgrid != None:
+            test_simulator = DiscreteMicrogridEnv.from_microgrid(self.input_microgrid)
+        else:
+            test_simulator = DiscreteMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
 
         # take a random action to start to be able to make an observation
         state, reward, done, info = test_simulator.step(test_simulator.sample_action())
@@ -220,11 +264,11 @@ class PymgridParameterizedMDP:
             state, reward, done, info = test_simulator.step(best_action)
             total_reward += reward
 
-            # Check for simulation end : temporarily setting to 100
-            if done:
+            # Check for simulation end : 
+            if done or ((not (self.end_step == None)) and test_simulator.current_step >= self.end_step):
                 break
 
-        return total_reward, action_log, timestamps
+        return total_reward, action_log, timestamps, microgrid_log
 
 
 class QNetwork(nn.Module):
@@ -246,15 +290,18 @@ class PymgridNeuralNetworkMDP:
         self.discount_factor = discount_factor
         self.randomization = randomization
         self.grid_num = grid_num
-        #continuous
-        # self.simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=grid_num)
-        #discrete
         self.input_microgrid=microgrid
         self.end_step = end_step
+        # discrete
         if microgrid != None:
             self.simulator = DiscreteMicrogridEnv.from_microgrid(microgrid)
         else:
             self.simulator = DiscreteMicrogridEnv.from_scenario(microgrid_number=grid_num)
+        #continuous
+        # if microgrid != None:
+        #     self.simulator = ContinuousMicrogridEnv.from_microgrid(microgrid)
+        # else:
+        #     self.simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=grid_num)
         init_action = self.simulator.sample_action()
         #continuous
         # self.action_size = len(init_action)
@@ -401,6 +448,11 @@ class PymgridNeuralNetworkMDP:
             test_simulator = DiscreteMicrogridEnv.from_microgrid(self.input_microgrid)
         else:
             test_simulator = DiscreteMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+        
+        # if self.input_microgrid != None:
+        #     test_simulator = ContinuousMicrogridEnv.from_microgrid(self.input_microgrid)
+        # else:
+        #     test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
 
         # test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
 
@@ -446,6 +498,12 @@ class PymgridNeuralNetworkMDP:
             test_simulator = DiscreteMicrogridEnv.from_microgrid(self.input_microgrid)
         else:
             test_simulator = DiscreteMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+
+        #continuous
+        # if self.input_microgrid != None:
+        #     test_simulator = ContinuousMicrogridEnv.from_microgrid(self.input_microgrid)
+        # else:
+        #     test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
         # test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
 
         while True:
