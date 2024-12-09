@@ -10,6 +10,11 @@ import pymgrid
 from pymgrid.envs import DiscreteMicrogridEnv, ContinuousMicrogridEnv
 import itertools
 
+import pandas as pd
+import numpy as np
+from pymgrid import Microgrid
+from pymgrid.modules import (BatteryModule, LoadModule, RenewableModule, GridModule)
+
 
 
 
@@ -44,6 +49,8 @@ class PymgridParameterizedMDP:
         """
         # grid_action = self.simulator.convert_action(action)
         features = state
+        features = np.append(features, action)
+        features = np.append(features, -1*action)
         # if grid_action.get("genset"):
         #     features = np.append(features, grid_action["genset"][0])
         # if grid_action.get("grid"):
@@ -170,9 +177,9 @@ class PymgridParameterizedMDP:
                     action_index = np.random.randint(0, len(self.action_space))
                     action = self.action_space[action_index]
                   # Define a reward function
-                print("reward", reward)
-                print("step", self.simulator.current_step)
-                print("action", action)
+                # print("reward", reward)
+                # print("step", self.simulator.current_step)
+                # print("action", action)
                 #pdb.set_trace()
                 next_state, reward, done, next_info = self.simulator.step(action)  # Take an action with a fixed amount (e.g., 100 MW)
                 # Get the next state
@@ -190,6 +197,56 @@ class PymgridParameterizedMDP:
             print(f"Episode {episode + 1}: Total Error = {total_error}, Total Gradient Sum = {grad_sum}")
         return self.theta, episode_rewards
 
+    def greedy_action_baseline(self, epsilon=0.1):
+        """
+        Chooses random actions from the action space to use as a baseline.
+        """
+        total_reward = 0
+        action_log = []
+        timestamps = []
+
+        rewards_array = np.zeros(len(self.action_space))
+        counts = np.ones(len(self.action_space))
+
+        if self.input_microgrid != None:
+            test_simulator = DiscreteMicrogridEnv.from_microgrid(self.input_microgrid)
+        else:
+            test_simulator = DiscreteMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+
+        #continuous
+        # if self.input_microgrid != None:
+        #     test_simulator = ContinuousMicrogridEnv.from_microgrid(self.input_microgrid)
+        # else:
+        #     test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+        # test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+        
+        while True:
+        # Select action based on the policy
+            # Pick a random action
+            if np.random.rand() > epsilon:
+                action_index = np.argmax(rewards_array/counts)
+            else:
+                action_index = np.random.randint(0, len(self.action_space))
+            action = self.action_space[action_index]
+
+            
+            # Perform the action in the simulator
+            next_state, reward, done, next_info = test_simulator.step(action)
+            total_reward += reward
+            rewards_array[action] += reward
+            counts[action] += 1
+
+            # Check for simulation end
+            if done or ((not (self.end_step == None)) and test_simulator.current_step >= self.end_step):
+                break
+            state = next_state
+            info = next_info
+
+        microgrid_log = test_simulator.get_log()
+
+        return total_reward, action_log, timestamps, microgrid_log
+    
+    
     def random_action_baseline(self):
         """
         Chooses random actions from the action space to use as a baseline.
@@ -260,7 +317,7 @@ class PymgridParameterizedMDP:
 
             # Select the action with the highest Q-value
             best_action = self.action_space[np.argmax(q_values)]
-            print("step", test_simulator.current_step)
+            # print("step", test_simulator.current_step)
             # pdb.set_trace()
             action_log.append(best_action)
             timestamps.append(time.time())
@@ -339,6 +396,7 @@ class PymgridNeuralNetworkMDP:
         """
         # grid_action = self.simulator.convert_action(action)
         features = state
+        features = np.append(features, action)
         # if grid_action.get("genset"):
         #     features = np.append(features, grid_action["genset"][0])
         # if grid_action.get("grid"):
@@ -431,6 +489,7 @@ class PymgridNeuralNetworkMDP:
         predicted_q = self.q_network(state_action_tensor)[0][0]  # Output for action index
 
         target_tensor = torch.tensor(target)
+        # pdb.set_trace()
 
         # Loss and backpropagation
         loss = self.criterion(predicted_q, target_tensor)
@@ -616,6 +675,55 @@ class PymgridNeuralNetworkMDP:
         microgrid_log = test_simulator.get_log()
 
         return total_reward, action_log, timestamps, microgrid_log
+
+    def greedy_action_baseline(self, epsilon=0.1):
+        """
+        Chooses random actions from the action space to use as a baseline.
+        """
+        total_reward = 0
+        action_log = []
+        timestamps = []
+
+        rewards_array = np.zeros(len(self.action_space))
+        counts = np.ones(len(self.action_space))
+
+        if self.input_microgrid != None:
+            test_simulator = DiscreteMicrogridEnv.from_microgrid(self.input_microgrid)
+        else:
+            test_simulator = DiscreteMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+
+        #continuous
+        # if self.input_microgrid != None:
+        #     test_simulator = ContinuousMicrogridEnv.from_microgrid(self.input_microgrid)
+        # else:
+        #     test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+        # test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+        
+        while True:
+        # Select action based on the policy
+            # Pick a random action
+            if np.random.rand() > epsilon:
+                action_index = np.argmax(rewards_array/counts)
+            else:
+                action_index = np.random.randint(0, len(self.action_space))
+            action = self.action_space[action_index]
+
+            
+            # Perform the action in the simulator
+            next_state, reward, done, next_info = test_simulator.step(action)
+            total_reward += reward
+            rewards_array[action] += reward
+            counts[action] += 1
+
+            # Check for simulation end
+            if done or ((not (self.end_step == None)) and test_simulator.current_step >= self.end_step):
+                break
+            state = next_state
+            info = next_info
+
+        microgrid_log = test_simulator.get_log()
+
+        return total_reward, action_log, timestamps, microgrid_log
    
 
     def train(self, episodes, epsilon=0.1):
@@ -652,9 +760,9 @@ class PymgridNeuralNetworkMDP:
                     # print("policy-action", action)
 
                 next_state, reward, done, next_info = self.simulator.step(action)
-                print("step", self.simulator.current_step)
-                print("reward", reward)
-                print("action", action)
+                # print("step", self.simulator.current_step)
+                # print("reward", reward)
+                # print("action", action)
                 total_reward += reward
                 # Check for simulation end
                 if done or ((not (self.end_step == None)) and self.simulator.current_step >= self.end_step):
@@ -755,12 +863,69 @@ if __name__ == "__main__":
     # learning_rate = 0.005
     # discount_factor = 0.85
     # num_episodes = 1
-    learning_rate = 0.1
+
+    DEMAND_CHG_DATA_LOCATION = "ucsd-dataset/UCSD_Microgrid_Database/Data Files/DemandCharge.csv"
+    demand_charge_data = pd.read_csv(DEMAND_CHG_DATA_LOCATION, parse_dates=['DateTime'])
+    demand_charge_data.set_index('DateTime', inplace=True)
+    # Ensure data is old to new
+    demand_charge_data.sort_index(inplace=True, ascending=True)
+
+    datetimes = demand_charge_data.index
+    ts_grid = []
+    # based on info from https://www.sdge.com/sites/default/files/regulatory/Summary%20Table%20for%20Web_Small%20Comm%201-1-18.pdf and https://www.sdge.com/total-electric-rates
+    for datetime in datetimes:
+        hour = datetime.hour
+        month = datetime.month
+        # peak months are June-October
+        if month > 5 and month < 11:
+            peak = 0.45678
+            off = 0.25124
+            super_off = 0.19583
+        # off peak months are November-May
+        else:
+            peak = 0.21401
+            off = 0.20351
+            super_off = 0.19157
+        if hour >= 16 and hour < 21:
+            # peak cost is between 4pm and 9pm
+            cost_import = peak
+        elif (hour >= 6 and hour < 16) or (hour>= 21 and hour < 24):
+            # off peak is between 6am-4pm and 9pm-12am
+            cost_import = off
+        else:
+            # super off peak is 12am-6am
+            cost_import = super_off
+        ts_grid.append([cost_import, 0, 475])
+    print(len(ts_grid))
+
+    ts_grid = np.array(ts_grid)
+
+    # Per-module data
+    campus_generated_energy = demand_charge_data['OnCampusGeneration'].to_numpy()
+    # Generation can't be negative for the purposes of this model even though it is in a few places in the dataset
+    campus_generated_energy = campus_generated_energy.clip(min=0)
+    campus_load = demand_charge_data['TotalCampusLoad'].to_numpy()
+
+    battery1 = BatteryModule(min_capacity=10, max_capacity=5000, max_charge=2500, max_discharge=2500, efficiency=0.9, init_soc=0.5)
+    battery2 = BatteryModule(min_capacity=10, max_capacity=200000, max_charge=100000, max_discharge=100000, efficiency=0.9, init_soc=0.5)
+    renewable_energy = RenewableModule(time_series=campus_generated_energy)
+    load = LoadModule(time_series=campus_load)
+    grid = GridModule(max_import=50000, max_export=50000, time_series=ts_grid)
+
+    modules = [battery1, battery2, renewable_energy, load, grid]
+
+    ucsd_microgrid_dynamic_pricing = Microgrid(modules, add_unbalanced_module=True)
+
+
+    learning_rate = 0.01
     discount_factor = 0.9
     # num_episodes = 2
-    mdp = PymgridNeuralNetworkMDP(learning_rate, discount_factor, grid_num=1, microgrid=None)
+    mdp = PymgridParameterizedMDP(learning_rate, discount_factor, grid_num=1)
+    # mdp.train(episodes=3)
+    # mdp.simulator.step(mdp.simulator.sample_action())
+    # mdp.run_inference()
     # mdp.analyze_performance(num_episodes=2)
-    mdp.q_network.load_state_dict(torch.load("q_network1733714386.9351628_episode0.pth"))
+    mdp.q_network.load_state_dict(torch.load("q_network_grid_num1_episode2.pth"))
     mdp.q_network.eval()
 
     # num_episodes = num_episodes
