@@ -42,14 +42,14 @@ class PymgridParameterizedMDP:
         Compute feature vector for the given state and action.
         Example assumes state includes demand and generation.
         """
-        grid_action = self.simulator.convert_action(action)
+        # grid_action = self.simulator.convert_action(action)
         features = state
-        if grid_action.get("genset"):
-            features = np.append(features, grid_action["genset"][0])
-        if grid_action.get("grid"):
-            features =np.append(features, grid_action["grid"][0])
-        if grid_action.get("battery"):
-            features = np.append(features, grid_action["battery"][0])
+        # if grid_action.get("genset"):
+        #     features = np.append(features, grid_action["genset"][0])
+        # if grid_action.get("grid"):
+        #     features =np.append(features, grid_action["grid"][0])
+        # if grid_action.get("battery"):
+        #     features = np.append(features, grid_action["battery"][0])
         # energy_diff = 0
         # load_energy = 0
         # provided_energy = 0
@@ -154,8 +154,10 @@ class PymgridParameterizedMDP:
             self.randomization *= 0.8
             self.state_space = set()
             # take a random initial step
+            # take a random action to start to be able to make an observation
             action_index = np.random.randint(0, len(self.action_space))
-            state, reward, done, info = self.simulator.step(self.action_space[action_index])
+            action = self.action_space[action_index]  
+            state, reward, done, info = self.simulator.step(action)
 
             while True:
                 if np.random.random() > self.randomization:
@@ -185,8 +187,7 @@ class PymgridParameterizedMDP:
                 total_error += td_error
 
             episode_rewards.append(total_error)
-            print(f"Episode {episode + 1}: Total Reward = {total_error}, Total Gradient Sum = {grad_sum}")
-
+            print(f"Episode {episode + 1}: Total Error = {total_error}, Total Gradient Sum = {grad_sum}")
         return self.theta, episode_rewards
 
     def random_action_baseline(self):
@@ -196,6 +197,7 @@ class PymgridParameterizedMDP:
         total_reward = 0
         action_log = []
         timestamps = []
+        cost_log = []
 
         if self.input_microgrid != None:
             test_simulator = DiscreteMicrogridEnv.from_microgrid(self.input_microgrid)
@@ -238,6 +240,7 @@ class PymgridParameterizedMDP:
         total_reward = 0
         action_log = []
         timestamps = []
+        cost_log = []
 
         if self.input_microgrid != None:
             test_simulator = DiscreteMicrogridEnv.from_microgrid(self.input_microgrid)
@@ -245,8 +248,10 @@ class PymgridParameterizedMDP:
             test_simulator = DiscreteMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
 
         # take a random action to start to be able to make an observation
-        state, reward, done, info = test_simulator.step(test_simulator.sample_action())
-
+        action_index = np.random.randint(0, len(self.action_space))
+        action = self.action_space[action_index]  
+        state, reward, done, info = test_simulator.step(action)
+        total_reward += reward
         while True:
 
             # Compute Q-values for all possible actions
@@ -257,7 +262,7 @@ class PymgridParameterizedMDP:
             best_action = self.action_space[np.argmax(q_values)]
             print("step", test_simulator.current_step)
             # pdb.set_trace()
-            action_log.append(test_simulator.convert_action(best_action))
+            action_log.append(best_action)
             timestamps.append(time.time())
 
             # Perform the action in the simulator
@@ -267,6 +272,8 @@ class PymgridParameterizedMDP:
             # Check for simulation end : 
             if done or ((not (self.end_step == None)) and test_simulator.current_step >= self.end_step):
                 break
+        
+        microgrid_log = test_simulator.get_log()
 
         return total_reward, action_log, timestamps, microgrid_log
 
@@ -313,6 +320,7 @@ class PymgridNeuralNetworkMDP:
         self.init_reward = reward
         self.init_info = init_info
         self.feature_size = len(self.feature_vector(init_state, init_action, init_info))
+        self.simulator.reset()
         # Initialize the Q-network and optimizer
         self.q_network = QNetwork(self.feature_size, 128, 1)
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=learning_rate)
@@ -329,18 +337,18 @@ class PymgridNeuralNetworkMDP:
         Compute feature vector for the given state and action.
         Example assumes state includes demand and generation.
         """
-        grid_action = self.simulator.convert_action(action)
+        # grid_action = self.simulator.convert_action(action)
         features = state
-        if grid_action.get("genset"):
-            features = np.append(features, grid_action["genset"][0])
-        if grid_action.get("grid"):
-            features =np.append(features, grid_action["grid"][0])
-        if grid_action.get("battery"):
-            features = np.append(features, grid_action["battery"][0])
-        energy_diff = 0
-        load_energy = 0
-        provided_energy = 0
-        co2_emissions = 0
+        # if grid_action.get("genset"):
+        #     features = np.append(features, grid_action["genset"][0])
+        # if grid_action.get("grid"):
+        #     features =np.append(features, grid_action["grid"][0])
+        # if grid_action.get("battery"):
+        #     features = np.append(features, grid_action["battery"][0])
+        # energy_diff = 0
+        # load_energy = 0
+        # provided_energy = 0
+        # co2_emissions = 0
         # if info.get("load"):
         #     load_energy = info["load"][0]["absorbed_energy"]
         #     features = np.append(features, load_energy)
@@ -440,6 +448,7 @@ class PymgridNeuralNetworkMDP:
             - total_reward (float): Total reward accumulated during inference.
             - action_log (list): Log of actions taken during inference.
         """
+        self.q_network.eval()
         total_reward = 0
         action_log = []
         timestamps = []
@@ -456,36 +465,118 @@ class PymgridNeuralNetworkMDP:
 
         # test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
 
-        # take a random action to start to be able to make an observation
-        state, reward, done, info = test_simulator.step(test_simulator.sample_action())
+        # Pick a random action to initialize start
+        action_index = np.random.randint(0, len(self.action_space))
+        action = self.action_space[action_index]  
+        state, reward, done, info = test_simulator.step(action)
+        total_reward += reward
 
         while True:
         # Select action based on the policy
             q_values = []
-            for action in self.action_space:
-                state_action = self.feature_vector(state, action, info)
-                state_action_tensor = torch.FloatTensor(state_action).unsqueeze(0)  # Batch dimension
-                q_value = self.q_network(state_action_tensor).item()
-                q_values.append(q_value)
+            # for action in self.action_space:
+            #     state_action = self.feature_vector(state, action, info)
+            #     state_action_tensor = torch.FloatTensor(state_action).unsqueeze(0)  # Batch dimension
+            #     q_value = self.q_network(state_action_tensor).item()
+            #     q_values.append(q_value)
+
+            q_values = [self.q_value(state, action, info).item() for action in self.action_space]
+            best_action = self.action_space[np.argmax(q_values)]  # Exploit
 
             # Choose the action with the highest Q-value
-            best_action = self.action_space[np.argmax(q_values)]
+            # best_action = self.action_space[np.argmax(q_values)]
             action_log.append(best_action)
             timestamps.append(time.time())
 
              # Perform the action in the simulator
-            state, reward, done, info = test_simulator.step(best_action)
+            next_state, reward, done, next_info = test_simulator.step(best_action)
+
             total_reward += reward
 
             # Check for simulation end
             if done or ((not (self.end_step == None)) and test_simulator.current_step >= self.end_step):
                 break
+            state = next_state
+            info = next_info
 
         microgrid_log = test_simulator.get_log()
 
         return total_reward, action_log, timestamps, microgrid_log
 
 
+    def run_inference_with_epsilon_rand(self, epsilon=0.2):
+        """
+        Run inference using the parameterized MDP model.
+        Parameters:
+        Returns:
+            - total_reward (float): Total reward accumulated during inference.
+            - action_log (list): Log of actions taken during inference.
+        """
+        total_reward = 0
+        action_log = []
+        timestamps = []
+        self.q_network.eval()
+
+        if self.input_microgrid != None:
+            test_simulator = DiscreteMicrogridEnv.from_microgrid(self.input_microgrid)
+        else:
+            test_simulator = DiscreteMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+        
+        # if self.input_microgrid != None:
+        #     test_simulator = ContinuousMicrogridEnv.from_microgrid(self.input_microgrid)
+        # else:
+        #     test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+
+        # test_simulator = ContinuousMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+
+        # Pick a random action to initialize start
+        action_index = np.random.randint(0, len(self.action_space))
+        action = self.action_space[action_index]  
+        state, reward, done, info = test_simulator.step(action)
+        total_reward += reward
+
+        while True:
+        # Select action based on the policy
+            q_values = []
+            # for action in self.action_space:
+            #     state_action = self.feature_vector(state, action, info)
+            #     state_action_tensor = torch.FloatTensor(state_action).unsqueeze(0)  # Batch dimension
+            #     q_value = self.q_network(state_action_tensor).item()
+            #     q_values.append(q_value)
+
+            # Choose action using epsilon-greedy policy
+            if np.random.random() < epsilon:
+                action_index = np.random.randint(0, len(self.action_space))
+                best_action = self.action_space[action_index]  # Explore
+            else:
+                q_values = [self.q_value(state, action, info).item() for action in self.action_space]
+                best_action = self.action_space[np.argmax(q_values)]  # Exploit
+                # print("policy-action", action)
+
+            # Choose the action with the highest Q-value
+            # best_action = self.action_space[np.argmax(q_values)]
+            action_log.append(best_action)
+            timestamps.append(time.time())
+
+             # Perform the action in the simulator
+            next_state, reward, done, next_info = test_simulator.step(best_action)
+
+            total_reward += reward
+
+            # Check for simulation end
+            if done or ((not (self.end_step == None)) and test_simulator.current_step >= self.end_step):
+                break
+            state = next_state
+            info = next_info
+
+        microgrid_log = test_simulator.get_log()
+
+        return total_reward, action_log, timestamps, microgrid_log
+
+
+     
+    
+    
     def random_action_baseline(self):
         """
         Chooses random actions from the action space to use as a baseline.
@@ -513,12 +604,14 @@ class PymgridNeuralNetworkMDP:
             action = self.action_space[action_index]  
             
             # Perform the action in the simulator
-            state, reward, done, info = test_simulator.step(action)
+            next_state, reward, done, next_info = test_simulator.step(action)
             total_reward += reward
 
             # Check for simulation end
             if done or ((not (self.end_step == None)) and test_simulator.current_step >= self.end_step):
                 break
+            state = next_state
+            info = next_info
 
         microgrid_log = test_simulator.get_log()
 
@@ -541,7 +634,11 @@ class PymgridNeuralNetworkMDP:
             self.simulator.reset() # Reset the simulator for each episode
             total_reward = 0
 
-            state, reward, done, info = self.simulator.step(self.simulator.sample_action())
+            # Pick a random action to initialize start
+            action_index = np.random.randint(0, len(self.action_space))
+            action = self.action_space[action_index]  
+            state, reward, done, info = self.simulator.step(action)
+            total_reward += reward
 
             while True:
 
@@ -557,7 +654,7 @@ class PymgridNeuralNetworkMDP:
                 next_state, reward, done, next_info = self.simulator.step(action)
                 print("step", self.simulator.current_step)
                 print("reward", reward)
-                print("action", action, self.simulator.convert_action(action))
+                print("action", action)
                 total_reward += reward
                 # Check for simulation end
                 if done or ((not (self.end_step == None)) and self.simulator.current_step >= self.end_step):
@@ -572,10 +669,82 @@ class PymgridNeuralNetworkMDP:
             episode_rewards.append(total_reward)
             print(f"Episode {episode + 1}: Total Reward = {total_reward}")
             current_time = str(time.time())
-            # torch.save(mdp.q_network.state_dict(), f"q_network{current_time}_episode{episode}.pth")
+            torch.save(self.q_network.state_dict(), f"/Users/jazz/cs238/mdp-energy-grid-optimization-1/q_network_grid_num{self.grid_num}_episode{episode}.pth")
+        # # run another round for testing
+        # total_reward = 0
+        
+        # if self.input_microgrid != None:
+        #     test_simulator = DiscreteMicrogridEnv.from_microgrid(self.input_microgrid)
+        # else:
+        #     test_simulator = DiscreteMicrogridEnv.from_scenario(microgrid_number=self.grid_num)
+
+        # # Pick a random action to initialize start
+        # action_index = np.random.randint(0, len(self.action_space))
+        # action = self.action_space[action_index]  
+        # state, reward, done, info = test_simulator.step(action)
+        # total_reward += reward
+        # while True:
+        #     # Choose action using epsilon-greedy policy
+        #     if np.random.random() < epsilon:
+        #         action_index = np.random.randint(0, len(self.action_space))
+        #         action = self.action_space[action_index]  # Explore
+        #     else:
+        #         q_values = [self.q_value(state, action, info).item() for action in self.action_space]
+        #         action = self.action_space[np.argmax(q_values)]  # Exploit
+        #         # print("policy-action", action)
+
+        #     next_state, reward, done, next_info = test_simulator.step(action)
+        #     print("step", test_simulator.current_step)
+        #     print("reward", reward)
+        #     print("action", action)
+        #     total_reward += reward
+        #     # Check for simulation end
+        #     if done or ((not (self.end_step == None)) and test_simulator.current_step >= self.end_step):
+        #         break
+        
+        #     # Update Q-network
+        #     loss = self.update_parameters(state, action, info, reward, next_state, next_info)
+        #     state = next_state
+        #     info = next_info
+        # microgrid_log = test_simulator.get_log()
         return episode_rewards
 
 
+    # def analyze_performance(self, num_episodes=1):
+    #     num_episodes = num_episodes
+    #     self.train(episodes=num_episodes, epsilon=0.2)
+    #     total_reward, action_log, timestamps, microgrid_log = self.run_inference()
+    #     print("Total Reward during Inference:", total_reward)
+    #     random_reward, rand_actions, rand_timestamps, rand_mg_log = self.random_action_baseline()
+    #     print("Total Reward for Random:", random_reward)
+    #     return microgrid_log, total_reward, random_reward
+
+        # # from example
+        # try:
+        #     # Plot based on example from pymgrid:
+        #     microgrid_log.loc[:, pd.IndexSlice[:, :, 'reward']].cumsum().plot(title='Cumulative Cost for NN MDP')
+        #     rand_mg_log.loc[:, pd.IndexSlice[:, :, 'reward']].cumsum().plot(title='Cumulative Cost for Random Baseline')
+        #     microgrid_log.loc[:, pd.IndexSlice[:, :, 'co2_production']].cumsum().plot(title='Cumulative CO2 for NN MDP')
+        #     rand_mg_log.loc[:, pd.IndexSlice[:, :, 'co2_production']].cumsum().plot(title='Cumulative CO2 for Random Baseline')
+        # except:
+        #     return microgrid_log, total_reward, random_reward
+        # try:
+        #     microgrid_log[[('load', 0, 'load_current'),
+        #             ('pv', 0, 'renewable_used'), ('battery', 0, 'discharge_amount'), ('battery', 1, 'discharge_amount')]].droplevel(axis=1, level=1).plot()
+        # except:
+        #     return microgrid_log, total_reward, random_reward
+        # try:
+        #     microgrid_log[[('battery', 0, 'current_charge'), ('battery', 1, 'current_charge')]].droplevel(axis=1, level=1).plot()
+        # except:
+        #     return microgrid_log, total_reward, random_reward
+        # try: 
+        #     microgrid_log[[
+        #             ('unbalanced_energy', 0, 'loss_load')]].droplevel(axis=1, level=1).plot(title='Loss Load NN MDP')
+        #     rand_mg_log[[
+        #             ('unbalanced_energy', 0, 'loss_load')]].droplevel(axis=1, level=1).plot(title='Loss Load Random Baseline')
+        # except:
+        #     return microgrid_log, total_reward, random_reward
+        # return microgrid_log, total_reward, random_reward
 
 
 
@@ -586,8 +755,23 @@ if __name__ == "__main__":
     # learning_rate = 0.005
     # discount_factor = 0.85
     # num_episodes = 1
+    learning_rate = 0.1
+    discount_factor = 0.9
+    # num_episodes = 2
+    mdp = PymgridNeuralNetworkMDP(learning_rate, discount_factor, grid_num=1, microgrid=None)
+    # mdp.analyze_performance(num_episodes=2)
+    mdp.q_network.load_state_dict(torch.load("q_network1733714386.9351628_episode0.pth"))
+    mdp.q_network.eval()
 
-    # mdp = PymgridParameterizedMDP(learning_rate, discount_factor, grid_num=0, randomization=0.3)
+    # num_episodes = num_episodes
+    # self.train(episodes=num_episodes, epsilon=0.2)
+    total_reward, action_log, timestamps, microgrid_log = mdp.run_inference()
+    print("Total Reward during Inference:", total_reward)
+    random_reward, rand_actions, rand_timestamps, rand_mg_log = mdp.random_action_baseline()
+    print("Total Reward for Random:", random_reward)
+    # microgrid_log, total_reward, random_reward
+
+    
     # theta, rewards = mdp.train(episodes=num_episodes)
 
     # print("Trained Parameters:", theta)
@@ -600,17 +784,19 @@ if __name__ == "__main__":
     # # print("Action Log:", action_log)
     # pd.DataFrame.from_dict({"DateTime": timestamps, "Action": action_log}).to_csv("action_log.csv")
 
-    learning_rate = 0.05
-    discount_factor = 0.6
-    num_episodes = 1
-    mdp = PymgridNeuralNetworkMDP(learning_rate, discount_factor, grid_num=19)
-    rewards = mdp.train(episodes=num_episodes, epsilon=0.2)
-    total_reward, action_log, timestamps, microgrid_log = mdp.run_inference()
-    print("Total Reward during Inference:", total_reward)
+    # learning_rate = 0.05
+    # discount_factor = 0.6
+    # num_episodes = 1
+    # mdp = PymgridNeuralNetworkMDP(learning_rate, discount_factor, grid_num=19)
+    # rewards = mdp.train(episodes=num_episodes, epsilon=0.2)
+    # total_reward, action_log, timestamps, microgrid_log = mdp.run_inference()
+    # print("Total Reward during Inference:", total_reward)
 
-    # from example
-    microgrid_log[[('load', 0, 'load_met')]].droplevel(axis=1, level=1).plot()
-    microgrid_log[[('net_load', 0, '')]].droplevel(axis=1, level=1).plot()
+    # # from example
+    # microgrid_log[[('load', 0, 'load_met')]].droplevel(axis=1, level=1).plot()
+    # microgrid_log[[('net_load', 0, '')]].droplevel(axis=1, level=1).plot()
+
+    
 
     # microgrid_log.to_csv("mg_log.csv")
 
